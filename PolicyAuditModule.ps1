@@ -1141,84 +1141,326 @@ function Show-PolicyReport {
 
 function Export-PolicyReport {
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $exportPath = "$env:USERPROFILE\Desktop\PolicyAudit_Report_$timestamp.txt"
+    $desktopPath = [Environment]::GetFolderPath("Desktop")
+    $exportPath = "$desktopPath\PolicyAudit_Report_$timestamp.html"
     
-    $report = @"
-================================================================================
-                    WINDOWS POLICY AUDIT REPORT
-================================================================================
-Generated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
-Computer: $env:COMPUTERNAME
-User: $env:USERDOMAIN\$env:USERNAME
-Domain: $env:USERDOMAIN
-
-================================================================================
-                            EXECUTIVE SUMMARY
-================================================================================
-
-Total Policies Found: $($script:AllPolicies.Count)
-
-Policies by Source:
-"@
-
+    # Get summary data
     $bySource = $script:AllPolicies | Group-Object SourceType
+    $sourceTable = ""
     foreach ($group in $bySource) {
-        $report += "`n  - $($group.Name): $($group.Count) policies"
+        $sourceColor = switch ($group.Name) {
+            "Intune" { "#9C27B0" }
+            "MECM" { "#FF9800" }
+            "GPO" { "#2196F3" }
+            "Local" { "#757575" }
+            default { "#424242" }
+        }
+        $sourceTable += "<tr><td><span class='badge' style='background-color: $sourceColor;'>$($group.Name)</span></td><td><strong>$($group.Count)</strong> policies</td></tr>"
     }
     
-    $report += "`n`nPolicies by Category:"
+    $categoryTable = ""
     foreach ($category in $script:PolicyCategories.Keys | Sort-Object) {
         $count = $script:PolicyCategories[$category].Count
         if ($count -gt 0) {
-            $report += "`n  - $category`: $count policies"
+            $categoryTable += "<tr><td>$category</td><td><strong>$count</strong> policies</td></tr>"
         }
     }
     
-    $report += "`n`n"
-    $report += "=" * 80
-    $report += "`n                     DETAILED POLICY INVENTORY"
-    $report += "`n" + "=" * 80
-    
+    # Build policy details HTML
+    $policyDetailsHTML = ""
     foreach ($category in $script:PolicyCategories.Keys | Sort-Object) {
         $policies = $script:PolicyCategories[$category] | Sort-Object Priority, PolicyName
         if ($policies.Count -gt 0) {
-            $report += "`n`n"
-            $report += "-" * 80
-            $report += "`n$category POLICIES ($($policies.Count))"
-            $report += "`n" + "-" * 80
+            $policyDetailsHTML += "<h2 class='category-header'>$category ($($policies.Count) Policies)</h2>"
             
             foreach ($policy in $policies) {
-                $report += "`n`n"
-                $report += "Policy Name: $($policy.PolicyName)`n"
-                $report += "Source: $($policy.Source)`n"
+                $sourceColor = switch ($policy.SourceType) {
+                    "Intune" { "#9C27B0" }
+                    "MECM" { "#FF9800" }
+                    "GPO" { "#2196F3" }
+                    "Local" { "#757575" }
+                    default { "#424242" }
+                }
+                
+                $valueClass = ""
+                if ($policy.Value -eq 1 -or $policy.Value -eq $true) {
+                    $valueClass = "value-enabled"
+                } elseif ($policy.Value -eq 0 -or $policy.Value -eq $false) {
+                    $valueClass = "value-disabled"
+                }
+                
+                $policyDetailsHTML += @"
+<div class='policy-card'>
+    <div class='policy-header'>
+        <h3>$([System.Security.SecurityElement]::Escape($policy.PolicyName))</h3>
+        <span class='badge' style='background-color: $sourceColor;'>$([System.Security.SecurityElement]::Escape($policy.Source))</span>
+    </div>
+    <div class='policy-body'>
+"@
                 
                 # Add identifiers if available
                 if ($policy.GPOName) {
-                    $report += "GPO Name: $($policy.GPOName)`n"
+                    $policyDetailsHTML += "<p><strong>GPO Name:</strong> $([System.Security.SecurityElement]::Escape($policy.GPOName))</p>"
                 }
                 if ($policy.ConfigSource) {
-                    $report += "ConfigSource (Intune): $($policy.ConfigSource)`n"
+                    $policyDetailsHTML += "<p><strong>ConfigSource (Intune):</strong> <code>$([System.Security.SecurityElement]::Escape($policy.ConfigSource))</code></p>"
                 }
                 if ($policy.PolicyID) {
-                    $report += "Policy ID: $($policy.PolicyID)`n"
+                    $policyDetailsHTML += "<p><strong>Policy ID:</strong> <code>$([System.Security.SecurityElement]::Escape($policy.PolicyID))</code></p>"
                 }
                 if ($policy.MECMGUID) {
-                    $report += "MECM Policy GUID: $($policy.MECMGUID)`n"
+                    $policyDetailsHTML += "<p><strong>MECM Policy GUID:</strong> <code>$([System.Security.SecurityElement]::Escape($policy.MECMGUID))</code></p>"
                 }
                 
-                $report += "Value: $($policy.Value)`n"
-                $report += "Impact: $($policy.Impact)`n"
-                $report += "Description: $($policy.Description)`n"
-                $report += "Registry Path: $($policy.RegistryPath)`n"
-                $report += "Source Details: $($policy.SourceDetails)`n"
+                $policyDetailsHTML += @"
+        <p><strong>Value:</strong> <span class='$valueClass'>$([System.Security.SecurityElement]::Escape($policy.Value))</span></p>
+        <p><strong>Impact:</strong> $([System.Security.SecurityElement]::Escape($policy.Impact))</p>
+        <p><strong>Description:</strong> $([System.Security.SecurityElement]::Escape($policy.Description))</p>
+        <p class='registry-path'><strong>Registry:</strong> <code>$([System.Security.SecurityElement]::Escape($policy.RegistryPath))</code></p>
+    </div>
+</div>
+"@
             }
         }
     }
     
-    $report += "`n`n"
-    $report += "=" * 80
-    $report += "`nEND OF REPORT"
-    $report += "`n" + "=" * 80
+    # Build complete HTML report
+    $report = @"
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Windows Policy Audit Report - $env:COMPUTERNAME</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+        .header .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        .meta-info {
+            background: #eceff1;
+            padding: 20px 40px;
+            border-bottom: 1px solid #ddd;
+        }
+        .meta-info p {
+            margin: 5px 0;
+            font-size: 0.95em;
+        }
+        .meta-info strong {
+            color: #1e3c72;
+        }
+        .content {
+            padding: 40px;
+        }
+        .summary {
+            background: #f8f9fa;
+            border-left: 4px solid #2196F3;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-radius: 4px;
+        }
+        .summary h2 {
+            color: #1e3c72;
+            margin-bottom: 15px;
+            font-size: 1.8em;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .stat-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .stat-card h3 {
+            color: #1e3c72;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+            border-bottom: 2px solid #2196F3;
+            padding-bottom: 10px;
+        }
+        .stat-card table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .stat-card td {
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .stat-card td:last-child {
+            text-align: right;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            color: white;
+            text-transform: uppercase;
+        }
+        .category-header {
+            background: #1e3c72;
+            color: white;
+            padding: 15px 20px;
+            margin: 30px 0 20px 0;
+            border-radius: 4px;
+            font-size: 1.4em;
+            font-weight: 400;
+        }
+        .policy-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            overflow: hidden;
+            transition: box-shadow 0.3s;
+        }
+        .policy-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .policy-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .policy-header h3 {
+            color: #1e3c72;
+            font-size: 1.1em;
+            font-weight: 600;
+        }
+        .policy-body {
+            padding: 20px;
+        }
+        .policy-body p {
+            margin: 10px 0;
+            font-size: 0.95em;
+        }
+        .policy-body strong {
+            color: #1e3c72;
+            font-weight: 600;
+        }
+        .value-enabled {
+            color: #4CAF50;
+            font-weight: 600;
+        }
+        .value-disabled {
+            color: #F44336;
+            font-weight: 600;
+        }
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+            color: #d32f2f;
+        }
+        .registry-path code {
+            display: block;
+            margin-top: 5px;
+            padding: 10px;
+            background: #263238;
+            color: #aed581;
+            word-break: break-all;
+            border-radius: 4px;
+        }
+        .footer {
+            background: #eceff1;
+            padding: 20px 40px;
+            text-align: center;
+            color: #666;
+            font-size: 0.9em;
+            border-top: 1px solid #ddd;
+        }
+        @media print {
+            body { background: white; padding: 0; }
+            .container { box-shadow: none; }
+            .policy-card { page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <div class='header'>
+            <h1>Windows Policy Audit Report</h1>
+            <p class='subtitle'>Comprehensive Policy Analysis</p>
+        </div>
+        
+        <div class='meta-info'>
+            <p><strong>Generated:</strong> $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")</p>
+            <p><strong>Computer:</strong> $env:COMPUTERNAME</p>
+            <p><strong>User:</strong> $env:USERDOMAIN\$env:USERNAME</p>
+            <p><strong>Domain:</strong> $env:USERDOMAIN</p>
+        </div>
+        
+        <div class='content'>
+            <div class='summary'>
+                <h2>Executive Summary</h2>
+                <p style='font-size: 1.2em; margin-top: 10px;'><strong>Total Policies Found:</strong> $($script:AllPolicies.Count)</p>
+                
+                <div class='stats'>
+                    <div class='stat-card'>
+                        <h3>Policies by Source</h3>
+                        <table>
+                            $sourceTable
+                        </table>
+                    </div>
+                    <div class='stat-card'>
+                        <h3>Policies by Category</h3>
+                        <table>
+                            $categoryTable
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <h2 style='color: #1e3c72; margin-top: 40px; margin-bottom: 20px; font-size: 2em;'>Detailed Policy Inventory</h2>
+            $policyDetailsHTML
+        </div>
+        
+        <div class='footer'>
+            <p>&copy; $(Get-Date -Format "yyyy") Windows Policy Audit Tool | Generated for compliance and auditing purposes</p>
+            <p>This report contains sensitive system configuration information - handle accordingly</p>
+        </div>
+    </div>
+</body>
+</html>
+"@
     
     $report | Out-File -FilePath $exportPath -Encoding UTF8 -Force
     
