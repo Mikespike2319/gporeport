@@ -112,23 +112,42 @@ This will:
 PolicyAudit.bat [options]
 
 Options:
-  /full     - Include all policy categories (default)
-  /export   - Export report to Desktop (default: enabled)
-  /verbose  - Show detailed output during scan
+  /full            - Include all policy categories (default)
+  /comprehensive   - Scan ALL registry policies - finds EVERY policy deployed
+  /export          - Export report to Desktop (default: enabled)
+  /verbose         - Show detailed output during scan
 ```
 
 ### Examples
 
 ```batch
-# Full audit with export (default)
+# Standard audit with export (default)
 PolicyAudit.bat
 
-# Full audit with verbose output
-PolicyAudit.bat /verbose
+# COMPREHENSIVE mode - scans ALL registry policies (recommended)
+PolicyAudit.bat /comprehensive
 
-# Full audit only
-PolicyAudit.bat /full
+# Comprehensive mode with verbose output
+PolicyAudit.bat /comprehensive /verbose
+
+# Standard mode with verbose
+PolicyAudit.bat /full /verbose
 ```
+
+### Standard vs Comprehensive Mode
+
+**Standard Mode** (`/full` - default):
+- Scans specific known policy locations
+- Faster execution
+- Provides detailed analysis of common policies
+- Best for quick audits
+
+**Comprehensive Mode** (`/comprehensive` - recommended for complete audits):
+- Recursively scans ALL policy registry hives
+- Finds EVERY deployed policy, regardless of source
+- Discovers uncommon or custom policies
+- Takes longer but guarantees nothing is missed
+- **Use this mode when you need to see absolutely everything**
 
 ## Output
 

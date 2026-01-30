@@ -960,6 +960,100 @@ function Get-MECMPolicies {
     }
 }
 
+function Get-AllDeployedPolicies {
+    Write-ColorOutput "`n[*] Discovering ALL deployed policies from registry..." -Color Yellow
+    
+    # Root registry paths where policies can exist
+    $policyRoots = @(
+        "HKLM:\SOFTWARE\Policies",
+        "HKLM:\SOFTWARE\Microsoft\PolicyManager",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies",
+        "HKCU:\SOFTWARE\Policies",
+        "HKCU:\SOFTWARE\Microsoft\PolicyManager"
+    )
+    
+    foreach ($rootPath in $policyRoots) {
+        if (Test-Path $rootPath) {
+            Write-ColorOutput "  Scanning $rootPath..." -Color Gray
+            
+            # Recursively scan for all policies
+            Get-ChildItem -Path $rootPath -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+                $policyPath = $_.PSPath
+                
+                # Get all properties at this path
+                $props = Get-ItemProperty -Path $policyPath -ErrorAction SilentlyContinue
+                if ($props) {
+                    foreach ($prop in ($props.PSObject.Properties | Where-Object { $_.Name -notmatch "^PS" })) {
+                        $propName = $prop.Name
+                        $propValue = $prop.Value
+                        
+                        # Skip empty, null, or system values
+                        if ($null -eq $propValue -or $propValue -eq "" -or $propName -eq "(default)") {
+                            continue
+                        }
+                        
+                        # Auto-categorize based on path and property name
+                        $category = "Other"
+                        $pathLower = $policyPath.ToLower()
+                        
+                        if ($pathLower -match "windowsupdate|update|wsus") {
+                            $category = "Windows Update"
+                        } elseif ($pathLower -match "removablestorage|device|usb|deviceinstall") {
+                            $category = "Device Control"
+                        } elseif ($pathLower -match "security|defender|credential|smartscreen|passport") {
+                            $category = "Security"
+                        } elseif ($pathLower -match "network|dns|wifi|wcm") {
+                            $category = "Network"
+                        } elseif ($pathLower -match "applocker|safer|restrictions") {
+                            $category = "Application Control"
+                        } elseif ($pathLower -match "bitlocker|fve|encryption") {
+                            $category = "BitLocker"
+                        } elseif ($pathLower -match "firewall|mpssvc") {
+                            $category = "Firewall"
+                        } elseif ($pathLower -match "explorer|cloudcontent|datacollection|notification") {
+                            $category = "User Experience"
+                        } elseif ($pathLower -match "power|energy") {
+                            $category = "Power Management"
+                        } elseif ($pathLower -match "system|privacy|scripts") {
+                            $category = "System"
+                        }
+                        
+                        # Generate friendly policy name from path
+                        $pathParts = $policyPath -split "\\"
+                        $contextName = if ($pathParts.Count -gt 2) { $pathParts[-2] } else { "Policy" }
+                        $fullPolicyName = "$contextName\$propName"
+                        
+                        # Determine impact based on common patterns
+                        $impact = "Policy is configured"
+                        if ($propValue -eq 1 -or $propValue -eq $true) {
+                            if ($propName -match "Deny|Disable|Block|Prevent|NoAllow") {
+                                $impact = "Feature/Access is BLOCKED or DISABLED"
+                            } else {
+                                $impact = "Feature/Access is ENABLED or ALLOWED"
+                            }
+                        } elseif ($propValue -eq 0 -or $propValue -eq $false) {
+                            if ($propName -match "Deny|Disable|Block|Prevent|NoAllow") {
+                                $impact = "Feature/Access is ALLOWED or ENABLED"
+                            } else {
+                                $impact = "Feature/Access is DISABLED or BLOCKED"
+                            }
+                        } elseif ($propValue -is [int] -and $propValue -gt 1) {
+                            $impact = "Configured with value: $propValue"
+                        } else {
+                            $impact = "Configured as: $propValue"
+                        }
+                        
+                        Add-PolicyToCollection -Category $category -PolicyName $fullPolicyName `
+                            -Value $propValue -RegistryPath $policyPath `
+                            -Description "Deployed policy setting" `
+                            -Impact $impact
+                    }
+                }
+            }
+        }
+    }
+}
+
 # ============================================================================
 # REPORTING FUNCTIONS
 # ============================================================================
@@ -1146,17 +1240,25 @@ Write-ColorOutput "[*] This may take a few minutes...`n" -Color Yellow
 
 # Run all audit functions
 try {
-    Get-WindowsUpdatePolicies
-    Get-DeviceControlPolicies
-    Get-SecurityPolicies
-    Get-NetworkPolicies
-    Get-ApplicationControlPolicies
-    Get-BitLockerPolicies
-    Get-FirewallPolicies
-    Get-UserExperiencePolicies
-    Get-PowerManagementPolicies
-    Get-SystemPolicies
-    Get-MECMPolicies
+    if ($Mode -eq "comprehensive") {
+        # Comprehensive mode: Scan ALL registry policies
+        Write-ColorOutput "`n[!] Running in COMPREHENSIVE mode - scanning all policy registry paths" -Color Cyan
+        Get-AllDeployedPolicies
+        Get-MECMPolicies
+    } else {
+        # Standard mode: Use targeted policy functions
+        Get-WindowsUpdatePolicies
+        Get-DeviceControlPolicies
+        Get-SecurityPolicies
+        Get-NetworkPolicies
+        Get-ApplicationControlPolicies
+        Get-BitLockerPolicies
+        Get-FirewallPolicies
+        Get-UserExperiencePolicies
+        Get-PowerManagementPolicies
+        Get-SystemPolicies
+        Get-MECMPolicies
+    }
     
     # Display report
     Show-PolicyReport

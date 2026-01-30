@@ -31,9 +31,10 @@ REM USAGE:
 REM     PolicyAudit.bat [options]
 REM     
 REM     Options:
-REM       /full     - Include all policy categories (default)
-REM       /export   - Export report to Desktop
-REM       /verbose  - Show detailed output
+REM       /full            - Include all policy categories (default)
+REM       /comprehensive   - Scan ALL registry policies (finds everything)
+REM       /export          - Export report to Desktop
+REM       /verbose         - Show detailed output
 REM
 REM ============================================================================
 
@@ -47,6 +48,7 @@ set "VERBOSE=false"
 :parse_args
 if "%~1"=="" goto :end_parse
 if /i "%~1"=="/full" set "MODE=full"
+if /i "%~1"=="/comprehensive" set "MODE=comprehensive"
 if /i "%~1"=="/export" set "EXPORT=true"
 if /i "%~1"=="/verbose" set "VERBOSE=true"
 shift
