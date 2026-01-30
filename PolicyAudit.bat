@@ -34,6 +34,7 @@ REM     Options:
 REM       /full            - Include all policy categories (default)
 REM       /comprehensive   - Scan ALL registry policies (finds everything)
 REM       /export          - Export report to Desktop
+REM       /output "path"    - Specify custom output path (e.g., /output "C:\Reports")
 REM       /verbose         - Show detailed output
 REM
 REM ============================================================================
@@ -44,12 +45,17 @@ REM Check for parameters
 set "MODE=full"
 set "EXPORT=true"
 set "VERBOSE=false"
+set "OUTPUT_PATH="
 
 :parse_args
 if "%~1"=="" goto :end_parse
 if /i "%~1"=="/full" set "MODE=full"
 if /i "%~1"=="/comprehensive" set "MODE=comprehensive"
 if /i "%~1"=="/export" set "EXPORT=true"
+if /i "%~1"=="/output" (
+    set "OUTPUT_PATH=%~2"
+    shift
+)
 if /i "%~1"=="/verbose" set "VERBOSE=true"
 shift
 goto :parse_args
@@ -88,7 +94,7 @@ REM Run the PowerShell audit script
 echo Starting comprehensive policy audit...
 echo.
 
-powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%SCRIPT_DIR%PolicyAuditModule.ps1" -Mode "%MODE%" -Export "%EXPORT%" -Verbose "%VERBOSE%"
+powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%SCRIPT_DIR%PolicyAuditModule.ps1" -Mode "%MODE%" -Export "%EXPORT%" -OutputPath "%OUTPUT_PATH%" -Verbose "%VERBOSE%"
 
 if %ERRORLEVEL% NEQ 0 (
     echo.

@@ -115,6 +115,7 @@ Options:
   /full            - Include all policy categories (default)
   /comprehensive   - Scan ALL registry policies - finds EVERY policy deployed
   /export          - Export report to Desktop (default: enabled)
+  /output "path"    - Specify custom output path for the report
   /verbose         - Show detailed output during scan
 ```
 
@@ -126,6 +127,12 @@ PolicyAudit.bat
 
 # COMPREHENSIVE mode - scans ALL registry policies (recommended)
 PolicyAudit.bat /comprehensive
+
+# Save report to a specific location (useful when running with elevated account)
+PolicyAudit.bat /comprehensive /output "C:\Reports"
+
+# Save to network share or specific user desktop
+PolicyAudit.bat /comprehensive /output "C:\Users\YourUsername\Desktop"
 
 # Comprehensive mode with verbose output
 PolicyAudit.bat /comprehensive /verbose

@@ -23,6 +23,7 @@
 param(
     [string]$Mode = "full",
     [string]$Export = "true",
+    [string]$OutputPath = "",
     [string]$Verbose = "false"
 )
 
@@ -1140,9 +1141,27 @@ function Show-PolicyReport {
 }
 
 function Export-PolicyReport {
+    param(
+        [string]$CustomPath = ""
+    )
+    
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $desktopPath = [Environment]::GetFolderPath("Desktop")
-    $exportPath = "$desktopPath\PolicyAudit_Report_$timestamp.html"
+    
+    # Determine output path
+    if ($CustomPath -and $CustomPath -ne "") {
+        # Use custom path
+        if (Test-Path $CustomPath -PathType Container) {
+            $exportPath = Join-Path $CustomPath "PolicyAudit_Report_$timestamp.html"
+        } else {
+            Write-ColorOutput "`n[!] Warning: Custom path '$CustomPath' does not exist. Using Desktop instead." -Color Yellow
+            $desktopPath = [Environment]::GetFolderPath("Desktop")
+            $exportPath = "$desktopPath\PolicyAudit_Report_$timestamp.html"
+        }
+    } else {
+        # Default to Desktop
+        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        $exportPath = "$desktopPath\PolicyAudit_Report_$timestamp.html"
+    }
     
     # Get summary data
     $bySource = $script:AllPolicies | Group-Object SourceType
@@ -1508,7 +1527,7 @@ try {
     # Export if requested
     if ($Export -eq "true") {
         Write-ColorOutput "`n[*] Exporting report..." -Color Yellow
-        Export-PolicyReport
+        Export-PolicyReport -CustomPath $OutputPath
     }
     
     Write-ColorOutput "`n[*] Audit complete!" -Color Green
