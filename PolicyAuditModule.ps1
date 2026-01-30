@@ -153,6 +153,40 @@ function Get-PolicySource {
     }
 }
 
+function Get-PolicyIdentifier {
+    param(
+        [string]$RegistryPath
+    )
+    
+    $identifier = @{}
+    
+    # Try to get GPO name from registry
+    $gpoPath = $RegistryPath -replace "(HKLM:\\SOFTWARE\\Policies.*?)\\[^\\]+$", '$1'
+    $gpoName = Get-SafeRegistryValue -Path $gpoPath -Name "GPOName"
+    if ($gpoName) {
+        $identifier.GPOName = $gpoName
+    }
+    
+    # Try to get Intune ConfigSource
+    $configSource = Get-SafeRegistryValue -Path $RegistryPath -Name "ConfigSource"
+    if ($configSource) {
+        $identifier.ConfigSource = $configSource
+    }
+    
+    # Try to get Intune PolicyID
+    $policyID = Get-SafeRegistryValue -Path $RegistryPath -Name "PolicyID"
+    if ($policyID) {
+        $identifier.PolicyID = $policyID
+    }
+    
+    # Try to get MECM Policy GUID from path
+    if ($RegistryPath -match "\{([0-9A-F\-]+)\}") {
+        $identifier.MECMGUID = $Matches[1]
+    }
+    
+    return $identifier
+}
+
 function Add-PolicyToCollection {
     param(
         [string]$Category,
@@ -164,6 +198,7 @@ function Add-PolicyToCollection {
     )
     
     $sourceInfo = Get-PolicySource -RegistryPath $RegistryPath
+    $identifier = Get-PolicyIdentifier -RegistryPath $RegistryPath
     
     $policy = [PSCustomObject]@{
         Category = $Category
@@ -177,6 +212,10 @@ function Add-PolicyToCollection {
         Impact = $Impact
         Color = $sourceInfo.Color
         Priority = $sourceInfo.Priority
+        GPOName = $identifier.GPOName
+        ConfigSource = $identifier.ConfigSource
+        PolicyID = $identifier.PolicyID
+        MECMGUID = $identifier.MECMGUID
     }
     
     $script:AllPolicies += $policy
@@ -841,6 +880,86 @@ function Get-SystemPolicies {
     }
 }
 
+function Get-MECMPolicies {
+    Write-ColorOutput "`n[*] Auditing MECM/SCCM Policies..." -Color Yellow
+    
+    # Check if MECM client is installed
+    $ccmPath = "HKLM:\SOFTWARE\Microsoft\CCM"
+    if (-not (Test-Path $ccmPath)) {
+        Write-ColorOutput "  MECM client not detected on this machine" -Color Gray
+        return
+    }
+    
+    # MECM Policy paths
+    $mecmPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\CCM\Policy\Machine\ActualConfig",
+        "HKLM:\SOFTWARE\Microsoft\CCM\Policy\Machine\RequestedConfig",
+        "HKLM:\SOFTWARE\Microsoft\SMS\Mobile Client\Software Distribution",
+        "HKLM:\SOFTWARE\Policies\Microsoft\CCM"
+    )
+    
+    foreach ($basePath in $mecmPaths) {
+        if (Test-Path $basePath) {
+            # Get all subkeys (policy GUIDs)
+            Get-ChildItem -Path $basePath -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+                $policyPath = $_.PSPath
+                $policyGUID = $_.PSChildName
+                
+                $props = Get-ItemProperty -Path $policyPath -ErrorAction SilentlyContinue
+                if ($props) {
+                    # Process each property as a potential policy
+                    foreach ($prop in ($props.PSObject.Properties | Where-Object { $_.Name -notmatch "^PS" })) {
+                        $propName = $prop.Name
+                        $propValue = $prop.Value
+                        
+                        # Skip empty or null values
+                        if ($null -eq $propValue -or $propValue -eq "") {
+                            continue
+                        }
+                        
+                        # Determine category based on property name
+                        $category = "Other"
+                        if ($propName -match "Update|Patch|WSUS") {
+                            $category = "Windows Update"
+                        } elseif ($propName -match "Security|Defender|Firewall") {
+                            $category = "Security"
+                        } elseif ($propName -match "Power") {
+                            $category = "Power Management"
+                        } elseif ($propName -match "Device|USB|Storage") {
+                            $category = "Device Control"
+                        } elseif ($propName -match "BitLocker|Encryption") {
+                            $category = "BitLocker"
+                        } elseif ($propName -match "Network") {
+                            $category = "Network"
+                        }
+                        
+                        Add-PolicyToCollection -Category $category -PolicyName "MECM_$propName" `
+                            -Value $propValue -RegistryPath $policyPath `
+                            -Description "MECM/SCCM policy setting (GUID: $policyGUID)" `
+                            -Impact "MECM is managing this setting"
+                    }
+                }
+            }
+        }
+    }
+    
+    # Check MECM client settings
+    $clientSettingsPath = "HKLM:\SOFTWARE\Microsoft\CCM\ClientSDK"
+    if (Test-Path $clientSettingsPath) {
+        $clientProps = Get-ItemProperty -Path $clientSettingsPath -ErrorAction SilentlyContinue
+        if ($clientProps) {
+            foreach ($prop in ($clientProps.PSObject.Properties | Where-Object { $_.Name -notmatch "^PS" })) {
+                if ($null -ne $prop.Value -and $prop.Value -ne "") {
+                    Add-PolicyToCollection -Category "System" -PolicyName "MECM_ClientSDK_$($prop.Name)" `
+                        -Value $prop.Value -RegistryPath $clientSettingsPath `
+                        -Description "MECM client SDK setting" `
+                        -Impact "MECM client configuration"
+                }
+            }
+        }
+    }
+}
+
 # ============================================================================
 # REPORTING FUNCTIONS
 # ============================================================================
@@ -890,6 +1009,24 @@ function Show-PolicyReport {
                 
                 Write-ColorOutput "Source: " -Color Yellow -NoNewline
                 Write-ColorOutput $policy.Source -Color $policy.Color
+                
+                # Show policy identifiers if available
+                if ($policy.GPOName) {
+                    Write-ColorOutput "GPO Name: " -Color Yellow -NoNewline
+                    Write-ColorOutput $policy.GPOName -Color Cyan
+                }
+                if ($policy.ConfigSource) {
+                    Write-ColorOutput "ConfigSource (Intune): " -Color Yellow -NoNewline
+                    Write-ColorOutput $policy.ConfigSource -Color Magenta
+                }
+                if ($policy.PolicyID) {
+                    Write-ColorOutput "Policy ID: " -Color Yellow -NoNewline
+                    Write-ColorOutput $policy.PolicyID -Color Magenta
+                }
+                if ($policy.MECMGUID) {
+                    Write-ColorOutput "MECM Policy GUID: " -Color Yellow -NoNewline
+                    Write-ColorOutput $policy.MECMGUID -Color Yellow
+                }
                 
                 Write-ColorOutput "Value: " -Color Yellow -NoNewline
                 $valueColor = if ($policy.Value -eq 1 -or $policy.Value -eq $true) { "Green" } elseif ($policy.Value -eq 0 -or $policy.Value -eq $false) { "Red" } else { "White" }
@@ -960,6 +1097,21 @@ Policies by Source:
                 $report += "`n`n"
                 $report += "Policy Name: $($policy.PolicyName)`n"
                 $report += "Source: $($policy.Source)`n"
+                
+                # Add identifiers if available
+                if ($policy.GPOName) {
+                    $report += "GPO Name: $($policy.GPOName)`n"
+                }
+                if ($policy.ConfigSource) {
+                    $report += "ConfigSource (Intune): $($policy.ConfigSource)`n"
+                }
+                if ($policy.PolicyID) {
+                    $report += "Policy ID: $($policy.PolicyID)`n"
+                }
+                if ($policy.MECMGUID) {
+                    $report += "MECM Policy GUID: $($policy.MECMGUID)`n"
+                }
+                
                 $report += "Value: $($policy.Value)`n"
                 $report += "Impact: $($policy.Impact)`n"
                 $report += "Description: $($policy.Description)`n"
@@ -1004,6 +1156,7 @@ try {
     Get-UserExperiencePolicies
     Get-PowerManagementPolicies
     Get-SystemPolicies
+    Get-MECMPolicies
     
     # Display report
     Show-PolicyReport
