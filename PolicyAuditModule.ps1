@@ -1,23 +1,6 @@
 <#
-.SYNOPSIS
-    Comprehensive Windows Policy Audit Module
-.DESCRIPTION
-    This PowerShell module performs deep analysis of all policies applied to
-    a Windows machine, including GPO, MECM, Intune, and local policies.
-    
-    For each policy, it identifies:
-    - The source (GPO/MECM/Intune/Local)
-    - The policy name and category
-    - Current value/state
-    - What features are being controlled
-    - Registry path
-    
-.PARAMETER Mode
-    Audit mode: 'full' (default) or 'quick'
-.PARAMETER Export
-    Whether to export report to Desktop
-.PARAMETER Verbose
-    Show detailed output
+Windows Policy Audit Module
+Scans GPO, Intune, MECM, and local policies
 #>
 
 param(
@@ -29,9 +12,7 @@ param(
 
 $ErrorActionPreference = "SilentlyContinue"
 
-# ============================================================================
-# GLOBAL VARIABLES
-# ============================================================================
+# Track all discovered policies
 
 $script:AllPolicies = @()
 $script:PolicyCategories = @{
@@ -48,9 +29,7 @@ $script:PolicyCategories = @{
     "Other" = @()
 }
 
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
+# Helper functions
 
 function Write-ColorOutput {
     param(
@@ -155,32 +134,21 @@ function Get-PolicySource {
 }
 
 function Get-PolicyIdentifier {
-    param(
-        [string]$RegistryPath
-    )
+    param([string]$RegistryPath)
     
     $identifier = @{}
     
-    # Try to get GPO name from registry
+    # Extract policy identifiers for tracking
     $gpoPath = $RegistryPath -replace "(HKLM:\\SOFTWARE\\Policies.*?)\\[^\\]+$", '$1'
     $gpoName = Get-SafeRegistryValue -Path $gpoPath -Name "GPOName"
-    if ($gpoName) {
-        $identifier.GPOName = $gpoName
-    }
+    if ($gpoName) { $identifier.GPOName = $gpoName }
     
-    # Try to get Intune ConfigSource
     $configSource = Get-SafeRegistryValue -Path $RegistryPath -Name "ConfigSource"
-    if ($configSource) {
-        $identifier.ConfigSource = $configSource
-    }
+    if ($configSource) { $identifier.ConfigSource = $configSource }
     
-    # Try to get Intune PolicyID
     $policyID = Get-SafeRegistryValue -Path $RegistryPath -Name "PolicyID"
-    if ($policyID) {
-        $identifier.PolicyID = $policyID
-    }
+    if ($policyID) { $identifier.PolicyID = $policyID }
     
-    # Try to get MECM Policy GUID from path
     if ($RegistryPath -match "\{([0-9A-F\-]+)\}") {
         $identifier.MECMGUID = $Matches[1]
     }
@@ -223,12 +191,10 @@ function Add-PolicyToCollection {
     $script:PolicyCategories[$Category] += $policy
 }
 
-# ============================================================================
-# POLICY AUDIT FUNCTIONS
-# ============================================================================
+# Policy scanning functions
 
 function Get-WindowsUpdatePolicies {
-    Write-ColorOutput "`n[*] Auditing Windows Update Policies..." -Color Yellow
+    Write-ColorOutput "`n[*] Windows Update policies..." -Color Yellow
     
     $wuPaths = @(
         "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate",
@@ -310,7 +276,7 @@ function Get-WindowsUpdatePolicies {
 }
 
 function Get-DeviceControlPolicies {
-    Write-ColorOutput "`n[*] Auditing Device Control Policies..." -Color Yellow
+    Write-ColorOutput "`n[*] Device Control policies..." -Color Yellow
     
     # USB/Removable Storage
     $devicePaths = @(
@@ -408,7 +374,7 @@ function Get-DeviceControlPolicies {
 }
 
 function Get-SecurityPolicies {
-    Write-ColorOutput "`n[*] Auditing Security Policies..." -Color Yellow
+    Write-ColorOutput "`n[*] Security policies..." -Color Yellow
     
     $securityPaths = @(
         "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System",
@@ -882,12 +848,11 @@ function Get-SystemPolicies {
 }
 
 function Get-MECMPolicies {
-    Write-ColorOutput "`n[*] Auditing MECM/SCCM Policies..." -Color Yellow
+    Write-ColorOutput "`n[*] MECM policies..." -Color Yellow
     
-    # Check if MECM client is installed
     $ccmPath = "HKLM:\SOFTWARE\Microsoft\CCM"
     if (-not (Test-Path $ccmPath)) {
-        Write-ColorOutput "  MECM client not detected on this machine" -Color Gray
+        Write-ColorOutput "  MECM client not detected" -Color Gray
         return
     }
     
@@ -962,9 +927,9 @@ function Get-MECMPolicies {
 }
 
 function Get-AllDeployedPolicies {
-    Write-ColorOutput "`n[*] Discovering ALL deployed policies from registry..." -Color Yellow
+    Write-ColorOutput "`n[*] Scanning all registry policies..." -Color Yellow
     
-    # Root registry paths where policies can exist
+    # Main policy registry locations
     $policyRoots = @(
         "HKLM:\SOFTWARE\Policies",
         "HKLM:\SOFTWARE\Microsoft\PolicyManager",
@@ -1055,9 +1020,7 @@ function Get-AllDeployedPolicies {
     }
 }
 
-# ============================================================================
-# REPORTING FUNCTIONS
-# ============================================================================
+# Report generation
 
 function Show-PolicyReport {
     Write-SectionHeader "POLICY AUDIT SUMMARY"
@@ -1486,28 +1449,20 @@ function Export-PolicyReport {
     Write-ColorOutput "`nReport exported to: $exportPath" -Color Green
 }
 
-# ============================================================================
-# MAIN EXECUTION
-# ============================================================================
+# Main execution
 
-Write-SectionHeader "Windows Policy Audit Tool"
+Write-SectionHeader "Policy Audit"
 Write-ColorOutput "Computer: $env:COMPUTERNAME" -Color Gray
 Write-ColorOutput "User: $env:USERDOMAIN\$env:USERNAME" -Color Gray
-Write-ColorOutput "Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -Color Gray
-Write-ColorOutput "Mode: $Mode" -Color Gray
+Write-ColorOutput "Mode: $Mode`n" -Color Gray
 
-Write-ColorOutput "`n[*] Starting policy audit..." -Color Yellow
-Write-ColorOutput "[*] This may take a few minutes...`n" -Color Yellow
-
-# Run all audit functions
+# Scan policies
 try {
     if ($Mode -eq "comprehensive") {
-        # Comprehensive mode: Scan ALL registry policies
-        Write-ColorOutput "`n[!] Running in COMPREHENSIVE mode - scanning all policy registry paths" -Color Cyan
+        Write-ColorOutput "`nComprehensive scan enabled - checking all registry paths" -Color Cyan
         Get-AllDeployedPolicies
         Get-MECMPolicies
     } else {
-        # Standard mode: Use targeted policy functions
         Get-WindowsUpdatePolicies
         Get-DeviceControlPolicies
         Get-SecurityPolicies
@@ -1521,20 +1476,17 @@ try {
         Get-MECMPolicies
     }
     
-    # Display report
     Show-PolicyReport
     
-    # Export if requested
     if ($Export -eq "true") {
-        Write-ColorOutput "`n[*] Exporting report..." -Color Yellow
+        Write-ColorOutput "`n[*] Generating report..." -Color Yellow
         Export-PolicyReport -CustomPath $OutputPath
     }
     
-    Write-ColorOutput "`n[*] Audit complete!" -Color Green
+    Write-ColorOutput "`nComplete!" -Color Green
     exit 0
 }
 catch {
     Write-ColorOutput "`nERROR: $($_.Exception.Message)" -Color Red
-    Write-ColorOutput $_.ScriptStackTrace -Color Red
     exit 1
 }

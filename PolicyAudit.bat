@@ -1,47 +1,17 @@
 @echo off
-REM ============================================================================
 REM Windows Policy Audit Tool
-REM ============================================================================
-REM 
-REM SYNOPSIS:
-REM     Comprehensive policy audit script that identifies ALL policies applied
-REM     to a Windows machine from GPO, MECM, Intune, and other sources.
+REM Scans GPO, Intune, MECM, and local policies on Windows machines
 REM
-REM DESCRIPTION:
-REM     This script performs a deep audit of:
-REM     - Group Policy Objects (GPO) from Active Directory
-REM     - Microsoft Endpoint Configuration Manager (MECM/SCCM) policies
-REM     - Microsoft Intune (MDM) policies
-REM     - Local Group Policy
-REM     - Registry-based policies
-REM     
-REM     For each policy found, it reports:
-REM     - Policy source (GPO/MECM/Intune/Local)
-REM     - Policy name and category
-REM     - Current value/state
-REM     - What features are enabled/disabled by the policy
-REM     - Registry path where policy is stored
+REM Usage:
+REM   PolicyAudit.bat [/comprehensive] [/output "path"] [/verbose]
 REM
-REM REQUIREMENTS:
-REM     - Windows 10/11 or Windows Server 2016+
-REM     - PowerShell 5.1 or higher
-REM     - Standard domain user account (no admin required for most checks)
-REM
-REM USAGE:
-REM     PolicyAudit.bat [options]
-REM     
-REM     Options:
-REM       /full            - Include all policy categories (default)
-REM       /comprehensive   - Scan ALL registry policies (finds everything)
-REM       /export          - Export report to Desktop
-REM       /output "path"    - Specify custom output path (e.g., /output "C:\Reports")
-REM       /verbose         - Show detailed output
-REM
-REM ============================================================================
+REM Options:
+REM   /comprehensive - Scan all registry policies (recommended for complete audit)
+REM   /output "path" - Save report to specific folder
+REM   /verbose       - Show detailed output
 
-setlocal enabledelayedexpansion
+setlocal
 
-REM Check for parameters
 set "MODE=full"
 set "EXPORT=true"
 set "VERBOSE=false"
@@ -49,9 +19,7 @@ set "OUTPUT_PATH="
 
 :parse_args
 if "%~1"=="" goto :end_parse
-if /i "%~1"=="/full" set "MODE=full"
 if /i "%~1"=="/comprehensive" set "MODE=comprehensive"
-if /i "%~1"=="/export" set "EXPORT=true"
 if /i "%~1"=="/output" (
     set "OUTPUT_PATH=%~2"
     shift
@@ -62,60 +30,41 @@ goto :parse_args
 :end_parse
 
 echo.
-echo ============================================================================
-echo                    WINDOWS POLICY AUDIT TOOL
-echo ============================================================================
-echo.
-echo Analyzing all policies applied to this machine...
-echo This may take a few minutes...
+echo Windows Policy Audit Tool
+echo ========================
+echo Scanning policies...
 echo.
 
-REM Check if PowerShell is available
 where powershell >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: PowerShell is not available on this system.
-    echo This script requires PowerShell 5.1 or higher.
+    echo ERROR: PowerShell not found. This script requires PowerShell 5.1+
     pause
     exit /b 1
 )
 
-REM Get the directory where this batch file is located
 set "SCRIPT_DIR=%~dp0"
 
-REM Check if the PowerShell module exists
 if not exist "%SCRIPT_DIR%PolicyAuditModule.ps1" (
-    echo ERROR: PolicyAuditModule.ps1 not found in script directory.
-    echo Please ensure all files are in the same directory.
+    echo ERROR: PolicyAuditModule.ps1 not found. Keep both files together.
     pause
     exit /b 1
 )
 
-REM Run the PowerShell audit script
-echo Starting comprehensive policy audit...
-echo.
 
 powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%SCRIPT_DIR%PolicyAuditModule.ps1" -Mode "%MODE%" -Export "%EXPORT%" -OutputPath "%OUTPUT_PATH%" -Verbose "%VERBOSE%"
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo ============================================================================
-    echo ERROR: Policy audit encountered an error.
-    echo ============================================================================
+    echo ERROR: Audit failed.
     pause
     exit /b %ERRORLEVEL%
 )
 
 echo.
-echo ============================================================================
-echo                        AUDIT COMPLETE
-echo ============================================================================
+echo Done! Report saved.
+if "%EXPORT%"=="true" echo Check your output location for the HTML report.
 echo.
-if "%EXPORT%"=="true" (
-    echo Report has been exported to your Desktop.
-    echo.
-)
-echo Press any key to exit...
-pause >nul
+pause
 
 endlocal
 exit /b 0
